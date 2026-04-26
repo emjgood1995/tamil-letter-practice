@@ -83,6 +83,22 @@ def available_cards(selected_consonants: list[str], selected_vowels: list[str]) 
     return [compound.key for compound in all_compounds(consonants, vowels)]
 
 
+def consonant_answer_rows(selected_consonants: list[str]) -> list[dict[str, str]]:
+    rows = []
+    for mei in selected_consonants:
+        consonant = CONSONANT_BY_MEI[mei]
+        rows.append({"Letter": consonant.mei, "Sound": consonant.latin})
+    return rows
+
+
+def vowel_answer_rows(selected_vowels: list[str]) -> list[dict[str, str]]:
+    rows = []
+    for tamil in selected_vowels:
+        vowel = VOWEL_BY_TAMIL[tamil]
+        rows.append({"Letter": vowel.tamil, "Sound": vowel.latin})
+    return rows
+
+
 if "stats" not in st.session_state:
     reset_stats()
 
@@ -91,6 +107,12 @@ if "answer_locked" not in st.session_state:
 
 if "feedback" not in st.session_state:
     st.session_state.feedback = None
+
+if "selected_consonant" not in st.session_state:
+    st.session_state.selected_consonant = None
+
+if "selected_vowel" not in st.session_state:
+    st.session_state.selected_vowel = None
 
 
 st.title("Tamil Letter Practice")
@@ -137,10 +159,10 @@ if st.session_state.get("current_key") not in eligible_keys:
     choose_new_card(eligible_keys)
 
 if st.session_state.get("selected_consonant") not in selected_consonants:
-    st.session_state.selected_consonant = selected_consonants[0]
+    st.session_state.selected_consonant = None
 
 if st.session_state.get("selected_vowel") not in selected_vowels:
-    st.session_state.selected_vowel = selected_vowels[0]
+    st.session_state.selected_vowel = None
 
 current = compound_by_key(st.session_state.current_key)
 stats = st.session_state.stats
@@ -161,24 +183,63 @@ with practice_tab:
     )
 
     answer_cols = st.columns(2)
-    selected_consonant = answer_cols[0].selectbox(
-        "Consonant",
-        options=selected_consonants,
-        format_func=lambda mei: consonant_label(CONSONANT_BY_MEI[mei]),
-        key="selected_consonant",
+    consonant_table = answer_cols[0].dataframe(
+        consonant_answer_rows(selected_consonants),
+        hide_index=True,
+        height=420,
+        key="consonant_answer_table",
+        on_select="rerun",
+        selection_mode="single-row",
+        row_height=44,
+        column_config={
+            "Letter": st.column_config.TextColumn("Consonant", width="small"),
+            "Sound": st.column_config.TextColumn("Sound", width="small"),
+        },
     )
-    selected_vowel = answer_cols[1].selectbox(
-        "Vowel",
-        options=selected_vowels,
-        format_func=lambda tamil: vowel_label(VOWEL_BY_TAMIL[tamil]),
-        key="selected_vowel",
+    vowel_table = answer_cols[1].dataframe(
+        vowel_answer_rows(selected_vowels),
+        hide_index=True,
+        height=420,
+        key="vowel_answer_table",
+        on_select="rerun",
+        selection_mode="single-row",
+        row_height=44,
+        column_config={
+            "Letter": st.column_config.TextColumn("Vowel", width="small"),
+            "Sound": st.column_config.TextColumn("Sound", width="small"),
+        },
+    )
+
+    if consonant_table.selection.rows:
+        selected_row = consonant_table.selection.rows[0]
+        st.session_state.selected_consonant = selected_consonants[selected_row]
+
+    if vowel_table.selection.rows:
+        selected_row = vowel_table.selection.rows[0]
+        st.session_state.selected_vowel = selected_vowels[selected_row]
+
+    selected_consonant = st.session_state.selected_consonant
+    selected_vowel = st.session_state.selected_vowel
+    selected_consonant_text = (
+        consonant_label(CONSONANT_BY_MEI[selected_consonant])
+        if selected_consonant
+        else "None"
+    )
+    selected_vowel_text = (
+        vowel_label(VOWEL_BY_TAMIL[selected_vowel]) if selected_vowel else "None"
+    )
+    st.markdown(
+        f'<div class="answer-line">{selected_consonant_text} + {selected_vowel_text}</div>',
+        unsafe_allow_html=True,
     )
 
     action_cols = st.columns([1, 1, 4])
     submitted = action_cols[0].button(
         "Check answer",
         type="primary",
-        disabled=st.session_state.answer_locked,
+        disabled=st.session_state.answer_locked
+        or not selected_consonant
+        or not selected_vowel,
         width="stretch",
     )
     next_clicked = action_cols[1].button("Next", width="stretch")
