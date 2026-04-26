@@ -26,34 +26,135 @@ st.set_page_config(
 st.markdown(
     """
     <style>
+    :root {
+        --paper: #fffaf2;
+        --surface: #ffffff;
+        --surface-warm: #fff3d6;
+        --surface-cool: #e7f8f4;
+        --ink: #22313f;
+        --muted: #6b7280;
+        --coral: #e85d3f;
+        --saffron: #f4b942;
+        --teal: #087f7a;
+        --mint: #9be7c5;
+        --sky: #c9ecff;
+        --border: #efd8b2;
+    }
+    .stApp {
+        background:
+            linear-gradient(180deg, #fffaf2 0%, #fff7e8 52%, #eefbf7 100%);
+        color: var(--ink);
+    }
+    [data-testid="stHeader"] {
+        background: rgba(255, 250, 242, 0.88);
+    }
     .block-container {
         max-width: 1120px;
         padding-top: 2rem;
+        padding-bottom: 3rem;
+    }
+    h1 {
+        color: #173f3b;
+        font-weight: 800;
+    }
+    h3, [data-testid="stMarkdownContainer"] strong {
+        color: #27445c;
+    }
+    section[data-testid="stSidebar"] {
+        background: #fff1d6;
+        border-right: 1px solid var(--border);
+    }
+    section[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] {
+        color: #3f3428;
+    }
+    [data-testid="stMetric"] {
+        background: rgba(255, 255, 255, 0.92);
+        border: 1px solid #f1dfbf;
+        border-radius: 8px;
+        box-shadow: 0 10px 24px rgba(122, 88, 34, 0.08);
+        padding: 0.85rem 1rem;
     }
     .letter-card {
         align-items: center;
-        border: 1px solid #d8dee4;
+        border: 2px solid #f2c56b;
         border-radius: 8px;
+        box-shadow: 0 18px 40px rgba(92, 64, 25, 0.13);
         display: flex;
         justify-content: center;
         min-height: 260px;
-        margin: 0.75rem 0 1rem;
-        background: #fffdf7;
+        margin: 0.75rem 0 1.25rem;
+        background:
+            linear-gradient(135deg, #fff7cf 0%, #ffe7df 46%, #daf6ee 100%);
     }
     .letter-card span {
-        color: #111827;
+        color: #18363d;
         font-size: clamp(6rem, 18vw, 12rem);
+        font-weight: 800;
         line-height: 1;
+        text-shadow: 0 5px 0 rgba(255, 255, 255, 0.75);
     }
     .answer-line {
-        border-left: 4px solid #2563eb;
-        padding: 0.25rem 0 0.25rem 0.75rem;
-        margin: 0.5rem 0 1rem;
+        background: rgba(255, 255, 255, 0.86);
+        border: 1px solid #cdeee4;
+        border-left: 5px solid var(--teal);
+        border-radius: 8px;
+        box-shadow: 0 8px 20px rgba(8, 127, 122, 0.08);
+        color: var(--ink);
+        padding: 0.55rem 0.85rem;
+        margin: 0.75rem 0 1rem;
         font-size: 1.05rem;
     }
     .missed-letter {
         font-size: 2rem;
         line-height: 1.2;
+    }
+    [data-testid="stCaptionContainer"] {
+        color: #a16207;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+    div[data-testid="stButton"] > button {
+        background: rgba(255, 255, 255, 0.94);
+        border: 1px solid #edc56e;
+        border-radius: 8px;
+        box-shadow: 0 6px 14px rgba(92, 64, 25, 0.08);
+        color: #243044;
+        font-size: 1.2rem;
+        font-weight: 800;
+        min-height: 3rem;
+        transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease,
+            transform 120ms ease;
+    }
+    div[data-testid="stButton"] > button:hover:enabled {
+        background: #fff0bc;
+        border-color: var(--coral);
+        box-shadow: 0 9px 20px rgba(232, 93, 63, 0.18);
+        color: #173f3b;
+        transform: translateY(-1px);
+    }
+    div[data-testid="stButton"] > button[kind="primary"],
+    div[data-testid="stButton"] button[data-testid="stBaseButton-primary"] {
+        background: var(--teal);
+        border-color: var(--teal);
+        box-shadow: 0 8px 20px rgba(8, 127, 122, 0.22);
+        color: #ffffff;
+    }
+    div[data-testid="stButton"] > button[kind="primary"]:hover:enabled,
+    div[data-testid="stButton"] button[data-testid="stBaseButton-primary"]:hover:enabled {
+        background: #0a6c68;
+        border-color: #0a6c68;
+        color: #ffffff;
+    }
+    div[data-testid="stButton"] > button:disabled {
+        background: #f2f4f7;
+        border-color: #e4e7ec;
+        box-shadow: none;
+        color: #9aa4b2;
+        opacity: 0.78;
+    }
+    div[data-testid="stAlert"] {
+        border-radius: 8px;
     }
     </style>
     """,
