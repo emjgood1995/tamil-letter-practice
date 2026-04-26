@@ -1,18 +1,18 @@
 import random
+from typing import Optional
 
 import streamlit as st
 
 from tamil_letters import (
     CONSONANT_BY_MEI,
+    CONSONANT_GROUPS,
     CONSONANTS,
     VOWEL_BY_TAMIL,
+    VOWEL_PAIRS,
     VOWELS,
     all_compounds,
     compound_by_key,
-    consonant_label,
-    make_key,
     table_rows,
-    vowel_label,
 )
 
 
@@ -75,6 +75,8 @@ def choose_new_card(eligible_keys: list[str]) -> None:
     st.session_state.current_key = random.choice(eligible_keys)
     st.session_state.answer_locked = False
     st.session_state.feedback = None
+    st.session_state.selected_consonant = None
+    st.session_state.selected_vowel = None
 
 
 def available_cards(selected_consonants: list[str], selected_vowels: list[str]) -> list[str]:
@@ -83,20 +85,37 @@ def available_cards(selected_consonants: list[str], selected_vowels: list[str]) 
     return [compound.key for compound in all_compounds(consonants, vowels)]
 
 
-def consonant_answer_rows(selected_consonants: list[str]) -> list[dict[str, str]]:
-    rows = []
-    for mei in selected_consonants:
-        consonant = CONSONANT_BY_MEI[mei]
-        rows.append({"Letter": consonant.mei, "Sound": consonant.latin})
-    return rows
+def select_answer(letter: str, state_key: str) -> None:
+    st.session_state[state_key] = letter
+    st.rerun()
 
 
-def vowel_answer_rows(selected_vowels: list[str]) -> list[dict[str, str]]:
-    rows = []
-    for tamil in selected_vowels:
-        vowel = VOWEL_BY_TAMIL[tamil]
-        rows.append({"Letter": vowel.tamil, "Sound": vowel.latin})
-    return rows
+def render_letter_grid(
+    rows: tuple[tuple[str, ...], ...],
+    available_letters: list[str],
+    selected_letter: Optional[str],
+    state_key: str,
+    key_prefix: str,
+    row_labels: Optional[tuple[str, ...]] = None,
+) -> None:
+    available = set(available_letters)
+
+    for row_index, row in enumerate(rows):
+        if row_labels:
+            st.caption(row_labels[row_index])
+
+        columns = st.columns(6, gap="small")
+        for column_index, letter in enumerate(row):
+            is_selected = selected_letter == letter
+            columns[column_index].button(
+                letter,
+                key=f"{key_prefix}_{row_index}_{column_index}",
+                type="primary" if is_selected else "secondary",
+                disabled=letter not in available or st.session_state.answer_locked,
+                width="stretch",
+                on_click=select_answer,
+                args=(letter, state_key),
+            )
 
 
 if "stats" not in st.session_state:
@@ -123,13 +142,11 @@ with st.sidebar:
         "Consonants",
         options=[consonant.mei for consonant in CONSONANTS],
         default=[consonant.mei for consonant in CONSONANTS],
-        format_func=lambda mei: consonant_label(CONSONANT_BY_MEI[mei]),
     )
     selected_vowels = st.multiselect(
         "Vowels",
         options=[vowel.tamil for vowel in VOWELS],
         default=[vowel.tamil for vowel in VOWELS],
-        format_func=lambda tamil: vowel_label(VOWEL_BY_TAMIL[tamil]),
     )
     review_missed = st.toggle(
         "Review missed only",
@@ -142,6 +159,8 @@ with st.sidebar:
         st.session_state.current_key = None
         st.session_state.answer_locked = False
         st.session_state.feedback = None
+        st.session_state.selected_consonant = None
+        st.session_state.selected_vowel = None
         st.rerun()
 
 
@@ -182,52 +201,32 @@ with practice_tab:
         unsafe_allow_html=True,
     )
 
-    answer_cols = st.columns(2)
-    consonant_table = answer_cols[0].dataframe(
-        consonant_answer_rows(selected_consonants),
-        hide_index=True,
-        height=420,
-        key="consonant_answer_table",
-        on_select="rerun",
-        selection_mode="single-row",
-        row_height=44,
-        column_config={
-            "Letter": st.column_config.TextColumn("Consonant", width="small"),
-            "Sound": st.column_config.TextColumn("Sound", width="small"),
-        },
-    )
-    vowel_table = answer_cols[1].dataframe(
-        vowel_answer_rows(selected_vowels),
-        hide_index=True,
-        height=420,
-        key="vowel_answer_table",
-        on_select="rerun",
-        selection_mode="single-row",
-        row_height=44,
-        column_config={
-            "Letter": st.column_config.TextColumn("Vowel", width="small"),
-            "Sound": st.column_config.TextColumn("Sound", width="small"),
-        },
+    st.markdown("**Consonants**")
+    render_letter_grid(
+        rows=tuple(group[1] for group in CONSONANT_GROUPS),
+        row_labels=tuple(group[0] for group in CONSONANT_GROUPS),
+        available_letters=selected_consonants,
+        selected_letter=st.session_state.selected_consonant,
+        state_key="selected_consonant",
+        key_prefix="consonant_answer",
     )
 
-    if consonant_table.selection.rows:
-        selected_row = consonant_table.selection.rows[0]
-        st.session_state.selected_consonant = selected_consonants[selected_row]
-
-    if vowel_table.selection.rows:
-        selected_row = vowel_table.selection.rows[0]
-        st.session_state.selected_vowel = selected_vowels[selected_row]
+    st.markdown("**Vowels**")
+    render_letter_grid(
+        rows=(
+            tuple(pair[0] for pair in VOWEL_PAIRS),
+            tuple(pair[1] for pair in VOWEL_PAIRS),
+        ),
+        available_letters=selected_vowels,
+        selected_letter=st.session_state.selected_vowel,
+        state_key="selected_vowel",
+        key_prefix="vowel_answer",
+    )
 
     selected_consonant = st.session_state.selected_consonant
     selected_vowel = st.session_state.selected_vowel
-    selected_consonant_text = (
-        consonant_label(CONSONANT_BY_MEI[selected_consonant])
-        if selected_consonant
-        else "None"
-    )
-    selected_vowel_text = (
-        vowel_label(VOWEL_BY_TAMIL[selected_vowel]) if selected_vowel else "None"
-    )
+    selected_consonant_text = selected_consonant if selected_consonant else "None"
+    selected_vowel_text = selected_vowel if selected_vowel else "None"
     st.markdown(
         f'<div class="answer-line">{selected_consonant_text} + {selected_vowel_text}</div>',
         unsafe_allow_html=True,
@@ -263,7 +262,7 @@ with practice_tab:
         st.session_state.answer_locked = True
         st.session_state.feedback = {
             "is_correct": is_correct,
-            "answer": f"{consonant_label(current.consonant)} + {vowel_label(current.vowel)}",
+            "answer": f"{current.consonant.mei} + {current.vowel.tamil}",
         }
         st.rerun()
 
@@ -297,7 +296,5 @@ with missed_tab:
                 f'<div class="missed-letter">{compound.glyph}</div>',
                 unsafe_allow_html=True,
             )
-            cols[1].write(
-                f"{consonant_label(compound.consonant)} + {vowel_label(compound.vowel)}"
-            )
+            cols[1].write(f"{compound.consonant.mei} + {compound.vowel.tamil}")
             cols[2].write(f"Missed {count}")

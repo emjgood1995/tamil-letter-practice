@@ -74,6 +74,23 @@ CONSONANT_BY_MEI = {consonant.mei: consonant for consonant in CONSONANTS}
 VOWEL_BY_TAMIL = {vowel.tamil: vowel for vowel in VOWELS}
 
 
+CONSONANT_GROUPS = (
+    ("Hard", ("க்", "ச்", "ட்", "த்", "ப்", "ற்")),
+    ("Nasal", ("ங்", "ஞ்", "ண்", "ந்", "ம்", "ன்")),
+    ("Medium", ("ய்", "ர்", "ல்", "வ்", "ழ்", "ள்")),
+)
+
+
+VOWEL_PAIRS = (
+    ("அ", "ஆ"),
+    ("இ", "ஈ"),
+    ("உ", "ஊ"),
+    ("எ", "ஏ"),
+    ("ஒ", "ஓ"),
+    ("ஐ", "ஔ"),
+)
+
+
 def make_key(consonant_mei: str, vowel_tamil: str) -> str:
     return f"{consonant_mei}|{vowel_tamil}"
 
@@ -110,8 +127,8 @@ def vowel_label(vowel: Vowel) -> str:
 def table_rows() -> list[dict[str, str]]:
     rows = []
     for consonant in CONSONANTS:
-        row = {"Consonant": consonant_label(consonant)}
+        row = {"Consonant": consonant.mei}
         for vowel in VOWELS:
-            row[vowel_label(vowel)] = build_compound(consonant, vowel).glyph
+            row[vowel.tamil] = build_compound(consonant, vowel).glyph
         rows.append(row)
     return rows
