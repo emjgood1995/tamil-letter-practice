@@ -104,6 +104,38 @@ st.markdown(
         margin: 0.75rem 0 1rem;
         font-size: 1.05rem;
     }
+    .pronunciation-line {
+        background: #ffffff;
+        border: 1px solid #f0d08b;
+        border-radius: 8px;
+        box-shadow: 0 8px 20px rgba(244, 185, 66, 0.12);
+        color: var(--ink);
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.7rem;
+        margin: 0.5rem 0 1rem;
+        padding: 0.75rem 0.9rem;
+    }
+    .pronunciation-chip {
+        align-items: baseline;
+        background: #fff5d6;
+        border: 1px solid #f4d58f;
+        border-radius: 8px;
+        display: inline-flex;
+        gap: 0.45rem;
+        padding: 0.35rem 0.6rem;
+    }
+    .pronunciation-letter {
+        color: #173f3b;
+        font-size: 1.55rem;
+        font-weight: 800;
+        line-height: 1;
+    }
+    .pronunciation-text {
+        color: #a33d2b;
+        font-size: 1.05rem;
+        font-weight: 800;
+    }
     .missed-letter {
         font-size: 2rem;
         line-height: 1.2;
@@ -176,6 +208,7 @@ def choose_new_card(eligible_keys: list[str]) -> None:
     st.session_state.current_key = random.choice(eligible_keys)
     st.session_state.answer_locked = False
     st.session_state.feedback = None
+    st.session_state.show_pronunciation = False
     st.session_state.selected_consonant = None
     st.session_state.selected_vowel = None
 
@@ -234,6 +267,9 @@ if "selected_consonant" not in st.session_state:
 if "selected_vowel" not in st.session_state:
     st.session_state.selected_vowel = None
 
+if "show_pronunciation" not in st.session_state:
+    st.session_state.show_pronunciation = False
+
 
 st.title("Tamil Letter Practice")
 
@@ -260,6 +296,7 @@ with st.sidebar:
         st.session_state.current_key = None
         st.session_state.answer_locked = False
         st.session_state.feedback = None
+        st.session_state.show_pronunciation = False
         st.session_state.selected_consonant = None
         st.session_state.selected_vowel = None
         st.rerun()
@@ -361,9 +398,14 @@ with practice_tab:
             stats["missed"][current.key] = stats["missed"].get(current.key, 0) + 1
 
         st.session_state.answer_locked = True
+        st.session_state.show_pronunciation = False
         st.session_state.feedback = {
             "is_correct": is_correct,
             "answer": f"{current.consonant.mei} + {current.vowel.tamil}",
+            "consonant": current.consonant.mei,
+            "consonant_latin": current.consonant.latin,
+            "vowel": current.vowel.tamil,
+            "vowel_latin": current.vowel.latin,
         }
         st.rerun()
 
@@ -381,6 +423,26 @@ with practice_tab:
             f'<div class="answer-line">{feedback["answer"]}</div>',
             unsafe_allow_html=True,
         )
+        if not st.session_state.show_pronunciation:
+            if st.button("Reveal pronunciation", width="content"):
+                st.session_state.show_pronunciation = True
+
+        if st.session_state.show_pronunciation:
+            st.markdown(
+                f"""
+                <div class="pronunciation-line">
+                    <span class="pronunciation-chip">
+                        <span class="pronunciation-letter">{feedback["consonant"]}</span>
+                        <span class="pronunciation-text">{feedback["consonant_latin"]}</span>
+                    </span>
+                    <span class="pronunciation-chip">
+                        <span class="pronunciation-letter">{feedback["vowel"]}</span>
+                        <span class="pronunciation-text">{feedback["vowel_latin"]}</span>
+                    </span>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
 with table_tab:
     st.dataframe(table_rows(), hide_index=True, width="stretch")
