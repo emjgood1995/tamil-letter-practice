@@ -221,7 +221,6 @@ def available_cards(selected_consonants: list[str], selected_vowels: list[str]) 
 
 def select_answer(letter: str, state_key: str) -> None:
     st.session_state[state_key] = letter
-    st.rerun()
 
 
 def render_letter_grid(
