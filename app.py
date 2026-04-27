@@ -204,6 +204,15 @@ def reset_stats() -> None:
     }
 
 
+def new_quiz_stats() -> dict[str, int]:
+    return {
+        "attempts": 0,
+        "correct": 0,
+        "streak": 0,
+        "best_streak": 0,
+    }
+
+
 def reset_answer_state() -> None:
     st.session_state.answer_locked = False
     st.session_state.feedback = None
@@ -256,6 +265,35 @@ def choose_new_card(eligible_keys: list[str]) -> None:
     reset_answer_state()
 
 
+def reset_named_answer_state(prefix: str) -> None:
+    st.session_state[f"{prefix}_answer_locked"] = False
+    st.session_state[f"{prefix}_feedback"] = None
+    st.session_state[f"{prefix}_selected_answer"] = None
+
+
+def initialize_named_quiz(prefix: str) -> None:
+    defaults = {
+        f"{prefix}_queue": [],
+        f"{prefix}_queue_signature": None,
+        f"{prefix}_current_key": None,
+        f"{prefix}_selected_answer": None,
+        f"{prefix}_answer_locked": False,
+        f"{prefix}_feedback": None,
+        f"{prefix}_stats": new_quiz_stats(),
+    }
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
+
+
+def reset_named_quiz(prefix: str) -> None:
+    st.session_state[f"{prefix}_queue"] = []
+    st.session_state[f"{prefix}_queue_signature"] = None
+    st.session_state[f"{prefix}_current_key"] = None
+    st.session_state[f"{prefix}_stats"] = new_quiz_stats()
+    reset_named_answer_state(prefix)
+
+
 def available_cards(selected_consonants: list[str], selected_vowels: list[str]) -> list[str]:
     consonants = [CONSONANT_BY_MEI[mei] for mei in selected_consonants]
     vowels = [VOWEL_BY_TAMIL[tamil] for tamil in selected_vowels]
@@ -266,6 +304,51 @@ def select_answer(letter: str, state_key: str) -> None:
     st.session_state[state_key] = letter
 
 
+def refill_named_queue(
+    prefix: str,
+    eligible_keys: list[str],
+    *,
+    exclude_key: Optional[str] = None,
+    avoid_next_key: Optional[str] = None,
+) -> None:
+    st.session_state[f"{prefix}_queue"] = build_card_queue(
+        eligible_keys,
+        exclude_key=exclude_key,
+        avoid_next_key=avoid_next_key,
+    )
+    st.session_state[f"{prefix}_queue_signature"] = practice_set_signature(eligible_keys)
+
+
+def sync_named_queue(prefix: str, eligible_keys: list[str]) -> None:
+    signature = practice_set_signature(eligible_keys)
+
+    if st.session_state.get(f"{prefix}_queue_signature") == signature:
+        return
+
+    current_key = st.session_state.get(f"{prefix}_current_key")
+    exclude_key = current_key if current_key in eligible_keys else None
+    refill_named_queue(
+        prefix,
+        eligible_keys,
+        exclude_key=exclude_key,
+        avoid_next_key=current_key,
+    )
+
+
+def choose_named_card(prefix: str, eligible_keys: list[str]) -> None:
+    queue_key = f"{prefix}_queue"
+
+    if not st.session_state.get(queue_key):
+        refill_named_queue(
+            prefix,
+            eligible_keys,
+            avoid_next_key=st.session_state.get(f"{prefix}_current_key"),
+        )
+
+    st.session_state[f"{prefix}_current_key"] = st.session_state[queue_key].pop()
+    reset_named_answer_state(prefix)
+
+
 def render_letter_grid(
     rows: tuple[tuple[str, ...], ...],
     available_letters: list[str],
@@ -273,6 +356,7 @@ def render_letter_grid(
     state_key: str,
     key_prefix: str,
     row_labels: Optional[tuple[str, ...]] = None,
+    disabled: bool = False,
 ) -> None:
     available = set(available_letters)
 
@@ -287,11 +371,153 @@ def render_letter_grid(
                 letter,
                 key=f"{key_prefix}_{row_index}_{column_index}",
                 type="primary" if is_selected else "secondary",
-                disabled=letter not in available or st.session_state.answer_locked,
+                disabled=letter not in available or disabled,
                 width="stretch",
                 on_click=select_answer,
                 args=(letter, state_key),
             )
+
+
+def render_option_grid(
+    rows: tuple[tuple[tuple[str, str], ...], ...],
+    available_keys: list[str],
+    selected_key: Optional[str],
+    state_key: str,
+    key_prefix: str,
+    disabled: bool = False,
+) -> None:
+    available = set(available_keys)
+
+    for row_index, row in enumerate(rows):
+        columns = st.columns(6, gap="small")
+        for column_index, (option_key, label) in enumerate(row):
+            is_selected = selected_key == option_key
+            columns[column_index].button(
+                label,
+                key=f"{key_prefix}_{row_index}_{column_index}",
+                type="primary" if is_selected else "secondary",
+                disabled=option_key not in available or disabled,
+                width="stretch",
+                on_click=select_answer,
+                args=(option_key, state_key),
+            )
+
+
+def vowel_pronunciation_rows() -> tuple[tuple[tuple[str, str], ...], ...]:
+    return (
+        tuple((vowel_tamil, VOWEL_BY_TAMIL[vowel_tamil].latin) for vowel_tamil, _ in VOWEL_PAIRS),
+        tuple((vowel_tamil, VOWEL_BY_TAMIL[vowel_tamil].latin) for _, vowel_tamil in VOWEL_PAIRS),
+    )
+
+
+def consonant_pronunciation_rows() -> tuple[tuple[tuple[str, str], ...], ...]:
+    return tuple(
+        tuple((mei, CONSONANT_BY_MEI[mei].latin) for mei in consonants)
+        for _, consonants in CONSONANT_GROUPS
+    )
+
+
+def render_quiz_metrics(stats: dict[str, int]) -> None:
+    accuracy = round((stats["correct"] / stats["attempts"]) * 100) if stats["attempts"] else 0
+    metric_cols = st.columns(4)
+    metric_cols[0].metric("Correct", stats["correct"])
+    metric_cols[1].metric("Attempts", stats["attempts"])
+    metric_cols[2].metric("Accuracy", f"{accuracy}%")
+    metric_cols[3].metric("Streak", stats["streak"])
+
+
+def render_pronunciation_quiz(
+    *,
+    prefix: str,
+    eligible_keys: list[str],
+    lookup: dict[str, object],
+    option_rows: tuple[tuple[tuple[str, str], ...], ...],
+    empty_message: str,
+) -> None:
+    if not eligible_keys:
+        st.warning(empty_message)
+        return
+
+    sync_named_queue(prefix, eligible_keys)
+
+    if (
+        st.session_state.get(f"{prefix}_current_key") not in eligible_keys
+        and not st.session_state[f"{prefix}_answer_locked"]
+    ):
+        choose_named_card(prefix, eligible_keys)
+
+    current_key = st.session_state[f"{prefix}_current_key"]
+    current = lookup[current_key]
+    selected_key = st.session_state[f"{prefix}_selected_answer"]
+    stats = st.session_state[f"{prefix}_stats"]
+
+    render_quiz_metrics(stats)
+    st.markdown(
+        f'<div class="letter-card"><span>{current_key}</span></div>',
+        unsafe_allow_html=True,
+    )
+    render_option_grid(
+        rows=option_rows,
+        available_keys=eligible_keys,
+        selected_key=selected_key,
+        state_key=f"{prefix}_selected_answer",
+        key_prefix=f"{prefix}_answer",
+        disabled=st.session_state[f"{prefix}_answer_locked"],
+    )
+
+    selected_text = lookup[selected_key].latin if selected_key else "None"
+    st.markdown(
+        f'<div class="answer-line">{selected_text}</div>',
+        unsafe_allow_html=True,
+    )
+
+    action_cols = st.columns([1, 1, 4])
+    submitted = action_cols[0].button(
+        "Check answer",
+        type="primary",
+        disabled=st.session_state[f"{prefix}_answer_locked"] or not selected_key,
+        width="stretch",
+        key=f"{prefix}_check",
+    )
+    next_clicked = action_cols[1].button(
+        "Next",
+        width="stretch",
+        key=f"{prefix}_next",
+    )
+
+    if submitted:
+        selected = lookup[selected_key]
+        is_correct = selected.latin == current.latin
+        stats["attempts"] += 1
+
+        if is_correct:
+            stats["correct"] += 1
+            stats["streak"] += 1
+            stats["best_streak"] = max(stats["best_streak"], stats["streak"])
+        else:
+            stats["streak"] = 0
+
+        st.session_state[f"{prefix}_answer_locked"] = True
+        st.session_state[f"{prefix}_feedback"] = {
+            "is_correct": is_correct,
+            "answer": f"{current_key}  {current.latin}",
+        }
+        st.rerun()
+
+    if next_clicked:
+        choose_named_card(prefix, eligible_keys)
+        st.rerun()
+
+    feedback = st.session_state[f"{prefix}_feedback"]
+    if feedback:
+        if feedback["is_correct"]:
+            st.success("Correct")
+        else:
+            st.error("Not quite")
+        st.markdown(
+            f'<div class="answer-line">{feedback["answer"]}</div>',
+            unsafe_allow_html=True,
+        )
 
 
 if "stats" not in st.session_state:
@@ -317,6 +543,9 @@ if "card_queue" not in st.session_state:
 
 if "card_queue_signature" not in st.session_state:
     st.session_state.card_queue_signature = None
+
+initialize_named_quiz("vowel_test")
+initialize_named_quiz("consonant_test")
 
 
 st.title("Tamil Letter Practice")
@@ -345,6 +574,8 @@ with st.sidebar:
         st.session_state.card_queue = []
         st.session_state.card_queue_signature = None
         reset_answer_state()
+        reset_named_quiz("vowel_test")
+        reset_named_quiz("consonant_test")
         st.rerun()
 
 
@@ -354,15 +585,13 @@ if review_missed:
     missed_keys = set(st.session_state.stats["missed"])
     eligible_keys = [key for key in eligible_keys if key in missed_keys]
 
-if not eligible_keys:
-    st.warning("The current filters have no letters to practise.")
-    st.stop()
-
-sync_card_queue(eligible_keys)
+if eligible_keys:
+    sync_card_queue(eligible_keys)
 
 if (
     st.session_state.get("current_key") not in eligible_keys
     and not st.session_state.answer_locked
+    and eligible_keys
 ):
     choose_new_card(eligible_keys)
 
@@ -372,128 +601,153 @@ if st.session_state.get("selected_consonant") not in selected_consonants:
 if st.session_state.get("selected_vowel") not in selected_vowels:
     st.session_state.selected_vowel = None
 
-current = compound_by_key(st.session_state.current_key)
 stats = st.session_state.stats
 accuracy = round((stats["correct"] / stats["attempts"]) * 100) if stats["attempts"] else 0
 
-practice_tab, table_tab, missed_tab = st.tabs(["Practice", "Letter table", "Missed"])
+practice_tab, vowel_tab, consonant_tab, table_tab, missed_tab = st.tabs(
+    ["Practice", "Vowel test", "Consonant test", "Letter table", "Missed"]
+)
 
 with practice_tab:
-    metric_cols = st.columns(4)
-    metric_cols[0].metric("Correct", stats["correct"])
-    metric_cols[1].metric("Attempts", stats["attempts"])
-    metric_cols[2].metric("Accuracy", f"{accuracy}%")
-    metric_cols[3].metric("Streak", stats["streak"])
+    if not eligible_keys:
+        st.warning("The current filters have no compound letters to practise.")
+    else:
+        current = compound_by_key(st.session_state.current_key)
+        metric_cols = st.columns(4)
+        metric_cols[0].metric("Correct", stats["correct"])
+        metric_cols[1].metric("Attempts", stats["attempts"])
+        metric_cols[2].metric("Accuracy", f"{accuracy}%")
+        metric_cols[3].metric("Streak", stats["streak"])
 
-    st.markdown(
-        f'<div class="letter-card"><span>{current.glyph}</span></div>',
-        unsafe_allow_html=True,
-    )
-
-    st.markdown("**Consonants**")
-    render_letter_grid(
-        rows=tuple(group[1] for group in CONSONANT_GROUPS),
-        row_labels=tuple(group[0] for group in CONSONANT_GROUPS),
-        available_letters=selected_consonants,
-        selected_letter=st.session_state.selected_consonant,
-        state_key="selected_consonant",
-        key_prefix="consonant_answer",
-    )
-
-    st.markdown("**Vowels**")
-    render_letter_grid(
-        rows=(
-            tuple(pair[0] for pair in VOWEL_PAIRS),
-            tuple(pair[1] for pair in VOWEL_PAIRS),
-        ),
-        available_letters=selected_vowels,
-        selected_letter=st.session_state.selected_vowel,
-        state_key="selected_vowel",
-        key_prefix="vowel_answer",
-    )
-
-    selected_consonant = st.session_state.selected_consonant
-    selected_vowel = st.session_state.selected_vowel
-    selected_consonant_text = selected_consonant if selected_consonant else "None"
-    selected_vowel_text = selected_vowel if selected_vowel else "None"
-    st.markdown(
-        f'<div class="answer-line">{selected_consonant_text} + {selected_vowel_text}</div>',
-        unsafe_allow_html=True,
-    )
-
-    action_cols = st.columns([1, 1, 4])
-    submitted = action_cols[0].button(
-        "Check answer",
-        type="primary",
-        disabled=st.session_state.answer_locked
-        or not selected_consonant
-        or not selected_vowel,
-        width="stretch",
-    )
-    next_clicked = action_cols[1].button("Next", width="stretch")
-
-    if submitted:
-        is_correct = (
-            selected_consonant == current.consonant.mei
-            and selected_vowel == current.vowel.tamil
-        )
-        stats["attempts"] += 1
-
-        if is_correct:
-            stats["correct"] += 1
-            stats["streak"] += 1
-            stats["best_streak"] = max(stats["best_streak"], stats["streak"])
-            stats["missed"].pop(current.key, None)
-        else:
-            stats["streak"] = 0
-            stats["missed"][current.key] = stats["missed"].get(current.key, 0) + 1
-
-        st.session_state.answer_locked = True
-        st.session_state.show_pronunciation = False
-        st.session_state.feedback = {
-            "is_correct": is_correct,
-            "answer": f"{current.consonant.mei} + {current.vowel.tamil}",
-            "consonant": current.consonant.mei,
-            "consonant_latin": current.consonant.latin,
-            "vowel": current.vowel.tamil,
-            "vowel_latin": current.vowel.latin,
-        }
-        st.rerun()
-
-    if next_clicked:
-        choose_new_card(eligible_keys)
-        st.rerun()
-
-    feedback = st.session_state.feedback
-    if feedback:
-        if feedback["is_correct"]:
-            st.success("Correct")
-        else:
-            st.error("Not quite")
         st.markdown(
-            f'<div class="answer-line">{feedback["answer"]}</div>',
+            f'<div class="letter-card"><span>{current.glyph}</span></div>',
             unsafe_allow_html=True,
         )
-        if not st.session_state.show_pronunciation:
-            if st.button("Reveal pronunciation", width="content"):
-                st.session_state.show_pronunciation = True
 
-        if st.session_state.show_pronunciation:
+        st.markdown("**Consonants**")
+        render_letter_grid(
+            rows=tuple(group[1] for group in CONSONANT_GROUPS),
+            row_labels=tuple(group[0] for group in CONSONANT_GROUPS),
+            available_letters=selected_consonants,
+            selected_letter=st.session_state.selected_consonant,
+            state_key="selected_consonant",
+            key_prefix="consonant_answer",
+            disabled=st.session_state.answer_locked,
+        )
+
+        st.markdown("**Vowels**")
+        render_letter_grid(
+            rows=(
+                tuple(pair[0] for pair in VOWEL_PAIRS),
+                tuple(pair[1] for pair in VOWEL_PAIRS),
+            ),
+            available_letters=selected_vowels,
+            selected_letter=st.session_state.selected_vowel,
+            state_key="selected_vowel",
+            key_prefix="vowel_answer",
+            disabled=st.session_state.answer_locked,
+        )
+
+        selected_consonant = st.session_state.selected_consonant
+        selected_vowel = st.session_state.selected_vowel
+        selected_consonant_text = selected_consonant if selected_consonant else "None"
+        selected_vowel_text = selected_vowel if selected_vowel else "None"
+        st.markdown(
+            f'<div class="answer-line">{selected_consonant_text} + {selected_vowel_text}</div>',
+            unsafe_allow_html=True,
+        )
+
+        action_cols = st.columns([1, 1, 4])
+        submitted = action_cols[0].button(
+            "Check answer",
+            type="primary",
+            disabled=st.session_state.answer_locked
+            or not selected_consonant
+            or not selected_vowel,
+            width="stretch",
+        )
+        next_clicked = action_cols[1].button("Next", width="stretch")
+
+        if submitted:
+            is_correct = (
+                selected_consonant == current.consonant.mei
+                and selected_vowel == current.vowel.tamil
+            )
+            stats["attempts"] += 1
+
+            if is_correct:
+                stats["correct"] += 1
+                stats["streak"] += 1
+                stats["best_streak"] = max(stats["best_streak"], stats["streak"])
+                stats["missed"].pop(current.key, None)
+            else:
+                stats["streak"] = 0
+                stats["missed"][current.key] = stats["missed"].get(current.key, 0) + 1
+
+            st.session_state.answer_locked = True
+            st.session_state.show_pronunciation = False
+            st.session_state.feedback = {
+                "is_correct": is_correct,
+                "answer": f"{current.consonant.mei} + {current.vowel.tamil}",
+                "consonant": current.consonant.mei,
+                "consonant_latin": current.consonant.latin,
+                "vowel": current.vowel.tamil,
+                "vowel_latin": current.vowel.latin,
+            }
+            st.rerun()
+
+        if next_clicked:
+            choose_new_card(eligible_keys)
+            st.rerun()
+
+        feedback = st.session_state.feedback
+        if feedback:
+            if feedback["is_correct"]:
+                st.success("Correct")
+            else:
+                st.error("Not quite")
             st.markdown(
-                f"""
-                <div class="pronunciation-line">
-                    <span class="pronunciation-chip">
-                        <span class="pronunciation-letter">{feedback["consonant"]}</span>
-                        <span class="pronunciation-text">{feedback["consonant_latin"]}</span>
-                    </span>
-                    <span class="pronunciation-chip">
-                        <span class="pronunciation-letter">{feedback["vowel"]}</span>
-                        <span class="pronunciation-text">{feedback["vowel_latin"]}</span>
-                    </span>
-                </div>
-                """,
+                f'<div class="answer-line">{feedback["answer"]}</div>',
                 unsafe_allow_html=True,
             )
+            if not st.session_state.show_pronunciation:
+                if st.button("Reveal pronunciation", width="content"):
+                    st.session_state.show_pronunciation = True
+
+            if st.session_state.show_pronunciation:
+                st.markdown(
+                    f"""
+                    <div class="pronunciation-line">
+                        <span class="pronunciation-chip">
+                            <span class="pronunciation-letter">{feedback["consonant"]}</span>
+                            <span class="pronunciation-text">{feedback["consonant_latin"]}</span>
+                        </span>
+                        <span class="pronunciation-chip">
+                            <span class="pronunciation-letter">{feedback["vowel"]}</span>
+                            <span class="pronunciation-text">{feedback["vowel_latin"]}</span>
+                        </span>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+with vowel_tab:
+    render_pronunciation_quiz(
+        prefix="vowel_test",
+        eligible_keys=selected_vowels,
+        lookup=VOWEL_BY_TAMIL,
+        option_rows=vowel_pronunciation_rows(),
+        empty_message="Select at least one vowel in the sidebar.",
+    )
+
+with consonant_tab:
+    render_pronunciation_quiz(
+        prefix="consonant_test",
+        eligible_keys=selected_consonants,
+        lookup=CONSONANT_BY_MEI,
+        option_rows=consonant_pronunciation_rows(),
+        empty_message="Select at least one consonant in the sidebar.",
+    )
 
 with table_tab:
     st.dataframe(table_rows(), hide_index=True, width="stretch")
