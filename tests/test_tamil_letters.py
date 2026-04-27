@@ -1,5 +1,6 @@
 import unittest
 
+from practice_queue import build_card_queue
 from tamil_letters import (
     CONSONANT_GROUPS,
     CONSONANTS,
@@ -45,6 +46,40 @@ class TamilLettersTest(unittest.TestCase):
         self.assertEqual(rows[0]["Consonant"], "க்")
         self.assertIn("அ", rows[0])
         self.assertNotIn("அ  a", rows[0])
+
+
+class NoShuffle:
+    def shuffle(self, values):
+        return None
+
+
+class PracticeQueueTest(unittest.TestCase):
+    def test_build_card_queue_excludes_current_card_from_active_cycle(self):
+        queue = build_card_queue(
+            ["one", "two", "three"],
+            exclude_key="two",
+            shuffler=NoShuffle(),
+        )
+
+        self.assertEqual(queue, ["one", "three"])
+
+    def test_build_card_queue_allows_only_card_when_excluded(self):
+        queue = build_card_queue(
+            ["only"],
+            exclude_key="only",
+            shuffler=NoShuffle(),
+        )
+
+        self.assertEqual(queue, ["only"])
+
+    def test_build_card_queue_avoids_immediate_repeat_when_refilled(self):
+        queue = build_card_queue(
+            ["one", "two", "three"],
+            avoid_next_key="three",
+            shuffler=NoShuffle(),
+        )
+
+        self.assertNotEqual(queue[-1], "three")
 
 
 if __name__ == "__main__":

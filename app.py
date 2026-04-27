@@ -1,8 +1,8 @@
-import random
 from typing import Optional
 
 import streamlit as st
 
+from practice_queue import build_card_queue
 from tamil_letters import (
     CONSONANT_BY_MEI,
     CONSONANT_GROUPS,
@@ -204,13 +204,56 @@ def reset_stats() -> None:
     }
 
 
-def choose_new_card(eligible_keys: list[str]) -> None:
-    st.session_state.current_key = random.choice(eligible_keys)
+def reset_answer_state() -> None:
     st.session_state.answer_locked = False
     st.session_state.feedback = None
     st.session_state.show_pronunciation = False
     st.session_state.selected_consonant = None
     st.session_state.selected_vowel = None
+
+
+def practice_set_signature(eligible_keys: list[str]) -> tuple[str, ...]:
+    return tuple(eligible_keys)
+
+
+def refill_card_queue(
+    eligible_keys: list[str],
+    *,
+    exclude_key: Optional[str] = None,
+    avoid_next_key: Optional[str] = None,
+) -> None:
+    st.session_state.card_queue = build_card_queue(
+        eligible_keys,
+        exclude_key=exclude_key,
+        avoid_next_key=avoid_next_key,
+    )
+    st.session_state.card_queue_signature = practice_set_signature(eligible_keys)
+
+
+def sync_card_queue(eligible_keys: list[str]) -> None:
+    signature = practice_set_signature(eligible_keys)
+
+    if st.session_state.get("card_queue_signature") == signature:
+        return
+
+    current_key = st.session_state.get("current_key")
+    exclude_key = current_key if current_key in eligible_keys else None
+    refill_card_queue(
+        eligible_keys,
+        exclude_key=exclude_key,
+        avoid_next_key=current_key,
+    )
+
+
+def choose_new_card(eligible_keys: list[str]) -> None:
+    if not st.session_state.get("card_queue"):
+        refill_card_queue(
+            eligible_keys,
+            avoid_next_key=st.session_state.get("current_key"),
+        )
+
+    st.session_state.current_key = st.session_state.card_queue.pop()
+    reset_answer_state()
 
 
 def available_cards(selected_consonants: list[str], selected_vowels: list[str]) -> list[str]:
@@ -269,6 +312,12 @@ if "selected_vowel" not in st.session_state:
 if "show_pronunciation" not in st.session_state:
     st.session_state.show_pronunciation = False
 
+if "card_queue" not in st.session_state:
+    st.session_state.card_queue = []
+
+if "card_queue_signature" not in st.session_state:
+    st.session_state.card_queue_signature = None
+
 
 st.title("Tamil Letter Practice")
 
@@ -293,11 +342,9 @@ with st.sidebar:
     if st.button("Reset score", width="stretch"):
         reset_stats()
         st.session_state.current_key = None
-        st.session_state.answer_locked = False
-        st.session_state.feedback = None
-        st.session_state.show_pronunciation = False
-        st.session_state.selected_consonant = None
-        st.session_state.selected_vowel = None
+        st.session_state.card_queue = []
+        st.session_state.card_queue_signature = None
+        reset_answer_state()
         st.rerun()
 
 
@@ -311,7 +358,12 @@ if not eligible_keys:
     st.warning("The current filters have no letters to practise.")
     st.stop()
 
-if st.session_state.get("current_key") not in eligible_keys:
+sync_card_queue(eligible_keys)
+
+if (
+    st.session_state.get("current_key") not in eligible_keys
+    and not st.session_state.answer_locked
+):
     choose_new_card(eligible_keys)
 
 if st.session_state.get("selected_consonant") not in selected_consonants:
