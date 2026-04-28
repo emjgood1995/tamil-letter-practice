@@ -1,8 +1,18 @@
+from collections.abc import Mapping
 from typing import Optional
 
 import streamlit as st
 
 from practice_queue import build_card_queue
+from pronunciation_store import (
+    DEFAULT_GITHUB_BRANCH,
+    DEFAULT_GITHUB_PATH,
+    DEFAULT_GITHUB_REPO,
+    PronunciationStoreError,
+    load_pronunciations,
+    save_pronunciations_file,
+    save_pronunciations_to_github,
+)
 from tamil_letters import (
     CONSONANT_BY_MEI,
     CONSONANT_GROUPS,
@@ -223,9 +233,14 @@ def default_consonant_pronunciations() -> dict[str, str]:
 
 def initialize_pronunciations() -> None:
     if "vowel_pronunciations" not in st.session_state:
-        st.session_state.vowel_pronunciations = default_vowel_pronunciations()
+        stored = load_pronunciations(
+            default_vowel_pronunciations(),
+            default_consonant_pronunciations(),
+        )
+        st.session_state.vowel_pronunciations = stored["vowels"]
+        st.session_state.consonant_pronunciations = stored["consonants"]
 
-    if "consonant_pronunciations" not in st.session_state:
+    elif "consonant_pronunciations" not in st.session_state:
         st.session_state.consonant_pronunciations = default_consonant_pronunciations()
 
 
@@ -275,6 +290,98 @@ def reset_all_answer_states() -> None:
     reset_answer_state()
     reset_named_answer_state("vowel_test")
     reset_named_answer_state("consonant_test")
+
+
+def pronunciation_payload(
+    vowel_pronunciations: dict[str, str],
+    consonant_pronunciations: dict[str, str],
+) -> dict[str, dict[str, str]]:
+    return {
+        "vowels": vowel_pronunciations,
+        "consonants": consonant_pronunciations,
+    }
+
+
+def get_secret_dict() -> dict:
+    try:
+        return dict(st.secrets)
+    except Exception:
+        return {}
+
+
+def github_persistence_config() -> Optional[dict[str, str]]:
+    secrets = get_secret_dict()
+    github = secrets.get("github", {})
+    if not isinstance(github, Mapping):
+        github = {}
+
+    token = github.get("token") or secrets.get("GITHUB_TOKEN")
+    if not token:
+        return None
+
+    return {
+        "token": str(token),
+        "repo": str(
+            github.get("repo")
+            or secrets.get("GITHUB_REPO")
+            or DEFAULT_GITHUB_REPO
+        ),
+        "branch": str(
+            github.get("branch")
+            or secrets.get("GITHUB_BRANCH")
+            or DEFAULT_GITHUB_BRANCH
+        ),
+        "path": str(
+            github.get("path")
+            or secrets.get("GITHUB_PATH")
+            or DEFAULT_GITHUB_PATH
+        ),
+    }
+
+
+def persist_pronunciations(
+    vowel_pronunciations: dict[str, str],
+    consonant_pronunciations: dict[str, str],
+) -> tuple[str, str]:
+    data = pronunciation_payload(vowel_pronunciations, consonant_pronunciations)
+    try:
+        save_pronunciations_file(data)
+    except OSError as exc:
+        return ("error", f"Could not write pronunciations.json: {exc}")
+
+    github_config = github_persistence_config()
+    if not github_config:
+        return (
+            "warning",
+            "Saved to pronunciations.json in this app session. Add GitHub secrets to commit changes back to the repo.",
+        )
+
+    try:
+        commit_url = save_pronunciations_to_github(data, **github_config)
+    except PronunciationStoreError as exc:
+        return (
+            "warning",
+            f"Saved locally, but the GitHub update failed: {exc}",
+        )
+
+    if commit_url:
+        return ("success", f"Pronunciations updated and committed to GitHub: {commit_url}")
+
+    return ("success", "Pronunciations updated and committed to GitHub.")
+
+
+def show_pronunciation_update_message() -> None:
+    message = st.session_state.pop("pronunciation_update_message", "")
+    level = st.session_state.pop("pronunciation_update_level", "success")
+    if not message:
+        return
+
+    if level == "warning":
+        st.warning(message)
+    elif level == "error":
+        st.error(message)
+    else:
+        st.success(message)
 
 
 def reset_answer_state() -> None:
@@ -593,14 +700,18 @@ def render_pronunciation_quiz(
 
 
 def render_pronunciation_settings() -> None:
-    if st.session_state.pop("pronunciation_update_message", False):
-        st.success("Pronunciations updated.")
+    show_pronunciation_update_message()
 
     if st.button("Reset defaults", key="reset_pronunciations", width="content"):
-        st.session_state.vowel_pronunciations = default_vowel_pronunciations()
-        st.session_state.consonant_pronunciations = default_consonant_pronunciations()
+        vowel_defaults = default_vowel_pronunciations()
+        consonant_defaults = default_consonant_pronunciations()
+        level, message = persist_pronunciations(vowel_defaults, consonant_defaults)
+        st.session_state.vowel_pronunciations = vowel_defaults
+        st.session_state.consonant_pronunciations = consonant_defaults
         st.session_state.pop("vowel_pronunciation_editor", None)
         st.session_state.pop("consonant_pronunciation_editor", None)
+        st.session_state.pronunciation_update_level = level
+        st.session_state.pronunciation_update_message = message
         reset_all_answer_states()
         st.rerun()
 
@@ -643,10 +754,12 @@ def render_pronunciation_settings() -> None:
         if invalid_vowels or invalid_consonants:
             st.error("Every pronunciation must have a value.")
         else:
+            level, message = persist_pronunciations(vowel_updates, consonant_updates)
             st.session_state.vowel_pronunciations = vowel_updates
             st.session_state.consonant_pronunciations = consonant_updates
             reset_all_answer_states()
-            st.session_state.pronunciation_update_message = True
+            st.session_state.pronunciation_update_level = level
+            st.session_state.pronunciation_update_message = message
             st.rerun()
 
 

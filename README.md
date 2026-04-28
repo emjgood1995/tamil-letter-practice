@@ -20,3 +20,21 @@ streamlit run app.py
 ```bash
 python3 -m unittest discover -s tests
 ```
+
+## Pronunciation Persistence
+
+The app reads default romanisation values from `pronunciations.json`. Changes made
+in the Pronunciations tab update that file.
+
+To let the deployed Streamlit app commit pronunciation changes back to GitHub,
+add these secrets in Streamlit Cloud:
+
+```toml
+[github]
+token = "github_pat_..."
+repo = "emjgood1995/tamil-letter-practice"
+branch = "main"
+path = "pronunciations.json"
+```
+
+The token needs contents read/write access for this repository.
