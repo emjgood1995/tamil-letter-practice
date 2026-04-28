@@ -213,6 +213,70 @@ def new_quiz_stats() -> dict[str, int]:
     }
 
 
+def default_vowel_pronunciations() -> dict[str, str]:
+    return {vowel.tamil: vowel.latin for vowel in VOWELS}
+
+
+def default_consonant_pronunciations() -> dict[str, str]:
+    return {consonant.mei: consonant.latin for consonant in CONSONANTS}
+
+
+def initialize_pronunciations() -> None:
+    if "vowel_pronunciations" not in st.session_state:
+        st.session_state.vowel_pronunciations = default_vowel_pronunciations()
+
+    if "consonant_pronunciations" not in st.session_state:
+        st.session_state.consonant_pronunciations = default_consonant_pronunciations()
+
+
+def pronunciation_for(letter: str, kind: str) -> str:
+    pronunciation_map = st.session_state[f"{kind}_pronunciations"]
+    return pronunciation_map[letter]
+
+
+def pronunciation_rows(kind: str, letters: list[str]) -> list[dict[str, str]]:
+    return [
+        {"Letter": letter, "Pronunciation": pronunciation_for(letter, kind)}
+        for letter in letters
+    ]
+
+
+def clean_pronunciation_rows(
+    rows: list[dict[str, str]],
+    valid_letters: list[str],
+) -> tuple[dict[str, str], list[str]]:
+    valid = set(valid_letters)
+    cleaned = {}
+    invalid_letters = []
+
+    for row in rows:
+        letter = str(row.get("Letter", ""))
+        pronunciation = str(row.get("Pronunciation", "")).strip()
+
+        if letter not in valid:
+            continue
+
+        if not pronunciation:
+            invalid_letters.append(letter)
+            continue
+
+        cleaned[letter] = pronunciation
+
+    missing = [
+        letter
+        for letter in valid_letters
+        if letter not in cleaned and letter not in invalid_letters
+    ]
+    invalid_letters.extend(missing)
+    return cleaned, invalid_letters
+
+
+def reset_all_answer_states() -> None:
+    reset_answer_state()
+    reset_named_answer_state("vowel_test")
+    reset_named_answer_state("consonant_test")
+
+
 def reset_answer_state() -> None:
     st.session_state.answer_locked = False
     st.session_state.feedback = None
@@ -405,14 +469,20 @@ def render_option_grid(
 
 def vowel_pronunciation_rows() -> tuple[tuple[tuple[str, str], ...], ...]:
     return (
-        tuple((vowel_tamil, VOWEL_BY_TAMIL[vowel_tamil].latin) for vowel_tamil, _ in VOWEL_PAIRS),
-        tuple((vowel_tamil, VOWEL_BY_TAMIL[vowel_tamil].latin) for _, vowel_tamil in VOWEL_PAIRS),
+        tuple(
+            (vowel_tamil, pronunciation_for(vowel_tamil, "vowel"))
+            for vowel_tamil, _ in VOWEL_PAIRS
+        ),
+        tuple(
+            (vowel_tamil, pronunciation_for(vowel_tamil, "vowel"))
+            for _, vowel_tamil in VOWEL_PAIRS
+        ),
     )
 
 
 def consonant_pronunciation_rows() -> tuple[tuple[tuple[str, str], ...], ...]:
     return tuple(
-        tuple((mei, CONSONANT_BY_MEI[mei].latin) for mei in consonants)
+        tuple((mei, pronunciation_for(mei, "consonant")) for mei in consonants)
         for _, consonants in CONSONANT_GROUPS
     )
 
@@ -430,8 +500,8 @@ def render_pronunciation_quiz(
     *,
     prefix: str,
     eligible_keys: list[str],
-    lookup: dict[str, object],
     option_rows: tuple[tuple[tuple[str, str], ...], ...],
+    pronunciation_kind: str,
     empty_message: str,
 ) -> None:
     if not eligible_keys:
@@ -447,9 +517,9 @@ def render_pronunciation_quiz(
         choose_named_card(prefix, eligible_keys)
 
     current_key = st.session_state[f"{prefix}_current_key"]
-    current = lookup[current_key]
     selected_key = st.session_state[f"{prefix}_selected_answer"]
     stats = st.session_state[f"{prefix}_stats"]
+    current_pronunciation = pronunciation_for(current_key, pronunciation_kind)
 
     render_quiz_metrics(stats)
     st.markdown(
@@ -465,7 +535,9 @@ def render_pronunciation_quiz(
         disabled=st.session_state[f"{prefix}_answer_locked"],
     )
 
-    selected_text = lookup[selected_key].latin if selected_key else "None"
+    selected_text = (
+        pronunciation_for(selected_key, pronunciation_kind) if selected_key else "None"
+    )
     st.markdown(
         f'<div class="answer-line">{selected_text}</div>',
         unsafe_allow_html=True,
@@ -486,8 +558,8 @@ def render_pronunciation_quiz(
     )
 
     if submitted:
-        selected = lookup[selected_key]
-        is_correct = selected.latin == current.latin
+        selected_pronunciation = pronunciation_for(selected_key, pronunciation_kind)
+        is_correct = selected_pronunciation == current_pronunciation
         stats["attempts"] += 1
 
         if is_correct:
@@ -500,7 +572,7 @@ def render_pronunciation_quiz(
         st.session_state[f"{prefix}_answer_locked"] = True
         st.session_state[f"{prefix}_feedback"] = {
             "is_correct": is_correct,
-            "answer": f"{current_key}  {current.latin}",
+            "answer": f"{current_key}  {current_pronunciation}",
         }
         st.rerun()
 
@@ -518,6 +590,64 @@ def render_pronunciation_quiz(
             f'<div class="answer-line">{feedback["answer"]}</div>',
             unsafe_allow_html=True,
         )
+
+
+def render_pronunciation_settings() -> None:
+    if st.session_state.pop("pronunciation_update_message", False):
+        st.success("Pronunciations updated.")
+
+    if st.button("Reset defaults", key="reset_pronunciations", width="content"):
+        st.session_state.vowel_pronunciations = default_vowel_pronunciations()
+        st.session_state.consonant_pronunciations = default_consonant_pronunciations()
+        st.session_state.pop("vowel_pronunciation_editor", None)
+        st.session_state.pop("consonant_pronunciation_editor", None)
+        reset_all_answer_states()
+        st.rerun()
+
+    st.markdown("**Vowels**")
+    vowel_rows = st.data_editor(
+        pronunciation_rows("vowel", [vowel.tamil for vowel in VOWELS]),
+        hide_index=True,
+        disabled=["Letter"],
+        key="vowel_pronunciation_editor",
+        width="stretch",
+        column_config={
+            "Letter": st.column_config.TextColumn("Letter", width="small"),
+            "Pronunciation": st.column_config.TextColumn("Pronunciation", width="medium"),
+        },
+    )
+
+    st.markdown("**Consonants**")
+    consonant_rows = st.data_editor(
+        pronunciation_rows("consonant", [consonant.mei for consonant in CONSONANTS]),
+        hide_index=True,
+        disabled=["Letter"],
+        key="consonant_pronunciation_editor",
+        width="stretch",
+        column_config={
+            "Letter": st.column_config.TextColumn("Letter", width="small"),
+            "Pronunciation": st.column_config.TextColumn("Pronunciation", width="medium"),
+        },
+    )
+
+    if st.button("Apply changes", type="primary", key="apply_pronunciations", width="content"):
+        vowel_updates, invalid_vowels = clean_pronunciation_rows(
+            vowel_rows,
+            [vowel.tamil for vowel in VOWELS],
+        )
+        consonant_updates, invalid_consonants = clean_pronunciation_rows(
+            consonant_rows,
+            [consonant.mei for consonant in CONSONANTS],
+        )
+
+        if invalid_vowels or invalid_consonants:
+            st.error("Every pronunciation must have a value.")
+        else:
+            st.session_state.vowel_pronunciations = vowel_updates
+            st.session_state.consonant_pronunciations = consonant_updates
+            reset_all_answer_states()
+            st.session_state.pronunciation_update_message = True
+            st.rerun()
 
 
 if "stats" not in st.session_state:
@@ -544,6 +674,7 @@ if "card_queue" not in st.session_state:
 if "card_queue_signature" not in st.session_state:
     st.session_state.card_queue_signature = None
 
+initialize_pronunciations()
 initialize_named_quiz("vowel_test")
 initialize_named_quiz("consonant_test")
 
@@ -604,8 +735,15 @@ if st.session_state.get("selected_vowel") not in selected_vowels:
 stats = st.session_state.stats
 accuracy = round((stats["correct"] / stats["attempts"]) * 100) if stats["attempts"] else 0
 
-practice_tab, vowel_tab, consonant_tab, table_tab, missed_tab = st.tabs(
-    ["Practice", "Vowel test", "Consonant test", "Letter table", "Missed"]
+practice_tab, vowel_tab, consonant_tab, settings_tab, table_tab, missed_tab = st.tabs(
+    [
+        "Practice",
+        "Vowel test",
+        "Consonant test",
+        "Pronunciations",
+        "Letter table",
+        "Missed",
+    ]
 )
 
 with practice_tab:
@@ -690,9 +828,9 @@ with practice_tab:
                 "is_correct": is_correct,
                 "answer": f"{current.consonant.mei} + {current.vowel.tamil}",
                 "consonant": current.consonant.mei,
-                "consonant_latin": current.consonant.latin,
+                "consonant_latin": pronunciation_for(current.consonant.mei, "consonant"),
                 "vowel": current.vowel.tamil,
-                "vowel_latin": current.vowel.latin,
+                "vowel_latin": pronunciation_for(current.vowel.tamil, "vowel"),
             }
             st.rerun()
 
@@ -735,8 +873,8 @@ with vowel_tab:
     render_pronunciation_quiz(
         prefix="vowel_test",
         eligible_keys=selected_vowels,
-        lookup=VOWEL_BY_TAMIL,
         option_rows=vowel_pronunciation_rows(),
+        pronunciation_kind="vowel",
         empty_message="Select at least one vowel in the sidebar.",
     )
 
@@ -744,10 +882,13 @@ with consonant_tab:
     render_pronunciation_quiz(
         prefix="consonant_test",
         eligible_keys=selected_consonants,
-        lookup=CONSONANT_BY_MEI,
         option_rows=consonant_pronunciation_rows(),
+        pronunciation_kind="consonant",
         empty_message="Select at least one consonant in the sidebar.",
     )
+
+with settings_tab:
+    render_pronunciation_settings()
 
 with table_tab:
     st.dataframe(table_rows(), hide_index=True, width="stretch")
