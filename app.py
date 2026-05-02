@@ -1,3 +1,4 @@
+import hmac
 from collections.abc import Mapping
 from typing import Optional
 
@@ -359,6 +360,83 @@ def get_secret_dict() -> dict:
         return dict(st.secrets)
     except Exception:
         return {}
+
+
+def pronunciation_admin_password() -> Optional[str]:
+    secrets = get_secret_dict()
+    admin = secrets.get("admin", {})
+    if not isinstance(admin, Mapping):
+        admin = {}
+
+    password = (
+        admin.get("password")
+        or secrets.get("PRONUNCIATION_ADMIN_PASSWORD")
+        or secrets.get("ADMIN_PASSWORD")
+    )
+    if not password:
+        return None
+
+    return str(password)
+
+
+def query_param_value(name: str) -> Optional[str]:
+    try:
+        value = st.query_params.get(name)
+    except Exception:
+        return None
+
+    if isinstance(value, list):
+        return str(value[0]) if value else None
+
+    if value is None:
+        return None
+
+    return str(value)
+
+
+def pronunciation_admin_requested() -> bool:
+    value = query_param_value("admin")
+    return bool(value and value.lower() in {"1", "true", "yes"})
+
+
+def render_pronunciation_admin_gate() -> bool:
+    if "pronunciation_admin_unlocked" not in st.session_state:
+        st.session_state.pronunciation_admin_unlocked = False
+
+    if st.session_state.pronunciation_admin_unlocked:
+        st.divider()
+        st.caption("Pronunciation admin")
+        if st.button("Lock pronunciation editor", width="stretch"):
+            st.session_state.pronunciation_admin_unlocked = False
+            st.rerun()
+        return True
+
+    if not pronunciation_admin_requested():
+        return False
+
+    st.divider()
+    st.caption("Pronunciation admin")
+    password = pronunciation_admin_password()
+    if not password:
+        st.warning("Admin password is not configured.")
+        return False
+
+    entered_password = st.text_input(
+        "Password",
+        type="password",
+        key="pronunciation_admin_password",
+    )
+    if st.button("Unlock pronunciation editor", width="stretch"):
+        if hmac.compare_digest(
+            entered_password.encode("utf-8"),
+            password.encode("utf-8"),
+        ):
+            st.session_state.pronunciation_admin_unlocked = True
+            st.rerun()
+        else:
+            st.error("Incorrect password.")
+
+    return False
 
 
 def github_persistence_config() -> Optional[dict[str, str]]:
@@ -962,6 +1040,8 @@ with st.sidebar:
         reset_named_quiz("consonant_test")
         st.rerun()
 
+    can_edit_pronunciations = render_pronunciation_admin_gate()
+
 
 eligible_keys = available_cards(selected_consonants, selected_vowels)
 
@@ -988,16 +1068,22 @@ if st.session_state.get("selected_vowel") not in selected_vowels:
 stats = st.session_state.stats
 accuracy = round((stats["correct"] / stats["attempts"]) * 100) if stats["attempts"] else 0
 
-practice_tab, vowel_tab, consonant_tab, settings_tab, table_tab, missed_tab = st.tabs(
-    [
-        "Practice",
-        "Vowel test",
-        "Consonant test",
-        "Pronunciations",
-        "Letter table",
-        "Missed",
-    ]
-)
+tab_names = [
+    "Practice",
+    "Vowel test",
+    "Consonant test",
+]
+if can_edit_pronunciations:
+    tab_names.append("Pronunciations")
+tab_names.extend(["Letter table", "Missed"])
+
+tabs = dict(zip(tab_names, st.tabs(tab_names)))
+practice_tab = tabs["Practice"]
+vowel_tab = tabs["Vowel test"]
+consonant_tab = tabs["Consonant test"]
+settings_tab = tabs.get("Pronunciations")
+table_tab = tabs["Letter table"]
+missed_tab = tabs["Missed"]
 
 with practice_tab:
     if not eligible_keys:
@@ -1146,8 +1232,9 @@ with consonant_tab:
         empty_message="Select at least one consonant in the sidebar.",
     )
 
-with settings_tab:
-    render_pronunciation_settings()
+if settings_tab is not None:
+    with settings_tab:
+        render_pronunciation_settings()
 
 with table_tab:
     st.dataframe(table_rows(), hide_index=True, width="stretch")
