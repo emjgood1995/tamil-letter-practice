@@ -21,11 +21,25 @@ def normalize_pronunciations(
     default_vowels: dict[str, str],
     default_consonants: dict[str, str],
 ) -> dict[str, dict[str, str]]:
+    if not isinstance(raw, dict):
+        raw = {}
+
+    vowels = normalize_pronunciation_map(raw.get("vowels", {}), default_vowels)
+    consonants = normalize_pronunciation_map(
+        raw.get("consonants", {}),
+        default_consonants,
+    )
+
     return {
-        "vowels": normalize_pronunciation_map(raw.get("vowels", {}), default_vowels),
-        "consonants": normalize_pronunciation_map(
-            raw.get("consonants", {}),
-            default_consonants,
+        "vowels": vowels,
+        "consonants": consonants,
+        "compound_vowels": normalize_pronunciation_map(
+            raw.get("compound_vowels", {}),
+            vowels,
+        ),
+        "compound_consonants": normalize_pronunciation_map(
+            raw.get("compound_consonants", {}),
+            consonants,
         ),
     }
 

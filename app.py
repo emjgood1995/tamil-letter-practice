@@ -231,17 +231,42 @@ def default_consonant_pronunciations() -> dict[str, str]:
     return {consonant.mei: consonant.latin for consonant in CONSONANTS}
 
 
+def default_compound_vowel_pronunciations() -> dict[str, str]:
+    return default_vowel_pronunciations()
+
+
+def default_compound_consonant_pronunciations() -> dict[str, str]:
+    return default_consonant_pronunciations()
+
+
 def initialize_pronunciations() -> None:
+    keys = (
+        "vowel_pronunciations",
+        "consonant_pronunciations",
+        "compound_vowel_pronunciations",
+        "compound_consonant_pronunciations",
+    )
+    if all(key in st.session_state for key in keys):
+        return
+
+    stored = load_pronunciations(
+        default_vowel_pronunciations(),
+        default_consonant_pronunciations(),
+    )
+
     if "vowel_pronunciations" not in st.session_state:
-        stored = load_pronunciations(
-            default_vowel_pronunciations(),
-            default_consonant_pronunciations(),
-        )
         st.session_state.vowel_pronunciations = stored["vowels"]
+
+    if "consonant_pronunciations" not in st.session_state:
         st.session_state.consonant_pronunciations = stored["consonants"]
 
-    elif "consonant_pronunciations" not in st.session_state:
-        st.session_state.consonant_pronunciations = default_consonant_pronunciations()
+    if "compound_vowel_pronunciations" not in st.session_state:
+        st.session_state.compound_vowel_pronunciations = stored["compound_vowels"]
+
+    if "compound_consonant_pronunciations" not in st.session_state:
+        st.session_state.compound_consonant_pronunciations = stored[
+            "compound_consonants"
+        ]
 
 
 def pronunciation_for(letter: str, kind: str) -> str:
@@ -250,40 +275,63 @@ def pronunciation_for(letter: str, kind: str) -> str:
 
 
 def pronunciation_rows(kind: str, letters: list[str]) -> list[dict[str, str]]:
+    compound_kind = f"compound_{kind}"
     return [
-        {"Letter": letter, "Pronunciation": pronunciation_for(letter, kind)}
+        {
+            "Letter": letter,
+            "Pronunciation": pronunciation_for(letter, kind),
+            "Compound pronunciation": pronunciation_for(letter, compound_kind),
+        }
         for letter in letters
     ]
+
+
+def row_text(row: dict[str, str], column: str, default: str = "") -> str:
+    value = row.get(column, default)
+    if value is None:
+        return ""
+    return str(value).strip()
 
 
 def clean_pronunciation_rows(
     rows: list[dict[str, str]],
     valid_letters: list[str],
-) -> tuple[dict[str, str], list[str]]:
+) -> tuple[dict[str, str], dict[str, str], list[str]]:
     valid = set(valid_letters)
     cleaned = {}
+    compound_cleaned = {}
     invalid_letters = []
 
     for row in rows:
-        letter = str(row.get("Letter", ""))
-        pronunciation = str(row.get("Pronunciation", "")).strip()
+        letter = row_text(row, "Letter")
+        pronunciation = row_text(row, "Pronunciation")
+        compound_pronunciation = row_text(
+            row,
+            "Compound pronunciation",
+            pronunciation,
+        )
 
         if letter not in valid:
             continue
 
-        if not pronunciation:
+        if not pronunciation or not compound_pronunciation:
             invalid_letters.append(letter)
             continue
 
         cleaned[letter] = pronunciation
+        compound_cleaned[letter] = compound_pronunciation
 
     missing = [
         letter
         for letter in valid_letters
-        if letter not in cleaned and letter not in invalid_letters
+        if (
+            letter not in cleaned
+            or letter not in compound_cleaned
+        )
+        and letter not in invalid_letters
     ]
     invalid_letters.extend(missing)
-    return cleaned, invalid_letters
+    return cleaned, compound_cleaned, invalid_letters
 
 
 def reset_all_answer_states() -> None:
@@ -295,10 +343,14 @@ def reset_all_answer_states() -> None:
 def pronunciation_payload(
     vowel_pronunciations: dict[str, str],
     consonant_pronunciations: dict[str, str],
+    compound_vowel_pronunciations: dict[str, str],
+    compound_consonant_pronunciations: dict[str, str],
 ) -> dict[str, dict[str, str]]:
     return {
         "vowels": vowel_pronunciations,
         "consonants": consonant_pronunciations,
+        "compound_vowels": compound_vowel_pronunciations,
+        "compound_consonants": compound_consonant_pronunciations,
     }
 
 
@@ -342,8 +394,15 @@ def github_persistence_config() -> Optional[dict[str, str]]:
 def persist_pronunciations(
     vowel_pronunciations: dict[str, str],
     consonant_pronunciations: dict[str, str],
+    compound_vowel_pronunciations: dict[str, str],
+    compound_consonant_pronunciations: dict[str, str],
 ) -> tuple[str, str]:
-    data = pronunciation_payload(vowel_pronunciations, consonant_pronunciations)
+    data = pronunciation_payload(
+        vowel_pronunciations,
+        consonant_pronunciations,
+        compound_vowel_pronunciations,
+        compound_consonant_pronunciations,
+    )
     try:
         save_pronunciations_file(data)
     except OSError as exc:
@@ -751,9 +810,18 @@ def render_pronunciation_settings() -> None:
     if st.button("Reset defaults", key="reset_pronunciations", width="content"):
         vowel_defaults = default_vowel_pronunciations()
         consonant_defaults = default_consonant_pronunciations()
-        level, message = persist_pronunciations(vowel_defaults, consonant_defaults)
+        compound_vowel_defaults = default_compound_vowel_pronunciations()
+        compound_consonant_defaults = default_compound_consonant_pronunciations()
+        level, message = persist_pronunciations(
+            vowel_defaults,
+            consonant_defaults,
+            compound_vowel_defaults,
+            compound_consonant_defaults,
+        )
         st.session_state.vowel_pronunciations = vowel_defaults
         st.session_state.consonant_pronunciations = consonant_defaults
+        st.session_state.compound_vowel_pronunciations = compound_vowel_defaults
+        st.session_state.compound_consonant_pronunciations = compound_consonant_defaults
         st.session_state.pop("vowel_pronunciation_editor", None)
         st.session_state.pop("consonant_pronunciation_editor", None)
         st.session_state.pronunciation_update_level = level
@@ -771,6 +839,10 @@ def render_pronunciation_settings() -> None:
         column_config={
             "Letter": st.column_config.TextColumn("Letter", width="small"),
             "Pronunciation": st.column_config.TextColumn("Pronunciation", width="medium"),
+            "Compound pronunciation": st.column_config.TextColumn(
+                "Compound pronunciation",
+                width="medium",
+            ),
         },
     )
 
@@ -784,15 +856,23 @@ def render_pronunciation_settings() -> None:
         column_config={
             "Letter": st.column_config.TextColumn("Letter", width="small"),
             "Pronunciation": st.column_config.TextColumn("Pronunciation", width="medium"),
+            "Compound pronunciation": st.column_config.TextColumn(
+                "Compound pronunciation",
+                width="medium",
+            ),
         },
     )
 
     if st.button("Apply changes", type="primary", key="apply_pronunciations", width="content"):
-        vowel_updates, invalid_vowels = clean_pronunciation_rows(
+        vowel_updates, compound_vowel_updates, invalid_vowels = clean_pronunciation_rows(
             vowel_rows,
             [vowel.tamil for vowel in VOWELS],
         )
-        consonant_updates, invalid_consonants = clean_pronunciation_rows(
+        (
+            consonant_updates,
+            compound_consonant_updates,
+            invalid_consonants,
+        ) = clean_pronunciation_rows(
             consonant_rows,
             [consonant.mei for consonant in CONSONANTS],
         )
@@ -800,9 +880,18 @@ def render_pronunciation_settings() -> None:
         if invalid_vowels or invalid_consonants:
             st.error("Every pronunciation must have a value.")
         else:
-            level, message = persist_pronunciations(vowel_updates, consonant_updates)
+            level, message = persist_pronunciations(
+                vowel_updates,
+                consonant_updates,
+                compound_vowel_updates,
+                compound_consonant_updates,
+            )
             st.session_state.vowel_pronunciations = vowel_updates
             st.session_state.consonant_pronunciations = consonant_updates
+            st.session_state.compound_vowel_pronunciations = compound_vowel_updates
+            st.session_state.compound_consonant_pronunciations = (
+                compound_consonant_updates
+            )
             reset_all_answer_states()
             st.session_state.pronunciation_update_level = level
             st.session_state.pronunciation_update_message = message
@@ -992,9 +1081,15 @@ with practice_tab:
                 "is_correct": is_correct,
                 "answer": f"{current.consonant.mei} + {current.vowel.tamil}",
                 "consonant": current.consonant.mei,
-                "consonant_latin": pronunciation_for(current.consonant.mei, "consonant"),
+                "consonant_latin": pronunciation_for(
+                    current.consonant.mei,
+                    "compound_consonant",
+                ),
                 "vowel": current.vowel.tamil,
-                "vowel_latin": pronunciation_for(current.vowel.tamil, "vowel"),
+                "vowel_latin": pronunciation_for(
+                    current.vowel.tamil,
+                    "compound_vowel",
+                ),
             }
             st.rerun()
 

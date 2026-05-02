@@ -31,6 +31,25 @@ class PronunciationStoreTest(unittest.TestCase):
 
         self.assertEqual(data["vowels"], {"அ": "ah", "ஆ": "aa"})
         self.assertEqual(data["consonants"], {"க்": "ka"})
+        self.assertEqual(data["compound_vowels"], {"அ": "ah", "ஆ": "aa"})
+        self.assertEqual(data["compound_consonants"], {"க்": "ka"})
+
+    def test_normalize_pronunciations_reads_compound_overrides(self):
+        data = normalize_pronunciations(
+            {
+                "vowels": {"அ": "ah"},
+                "consonants": {"க்": "k"},
+                "compound_vowels": {"அ": "a in compounds"},
+                "compound_consonants": {"க்": "g in compounds"},
+            },
+            {"அ": "a"},
+            {"க்": "ka"},
+        )
+
+        self.assertEqual(data["vowels"], {"அ": "ah"})
+        self.assertEqual(data["consonants"], {"க்": "k"})
+        self.assertEqual(data["compound_vowels"], {"அ": "a in compounds"})
+        self.assertEqual(data["compound_consonants"], {"க்": "g in compounds"})
 
     def test_load_pronunciations_reads_json_file(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -40,6 +59,8 @@ class PronunciationStoreTest(unittest.TestCase):
                     {
                         "vowels": {"அ": "ah"},
                         "consonants": {"க்": "k"},
+                        "compound_vowels": {"அ": "a in compounds"},
+                        "compound_consonants": {"க்": "g in compounds"},
                     },
                     ensure_ascii=False,
                 ),
@@ -54,6 +75,8 @@ class PronunciationStoreTest(unittest.TestCase):
 
         self.assertEqual(data["vowels"], {"அ": "ah"})
         self.assertEqual(data["consonants"], {"க்": "k"})
+        self.assertEqual(data["compound_vowels"], {"அ": "a in compounds"})
+        self.assertEqual(data["compound_consonants"], {"க்": "g in compounds"})
 
     def test_load_pronunciations_handles_invalid_json(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -68,9 +91,16 @@ class PronunciationStoreTest(unittest.TestCase):
 
         self.assertEqual(data["vowels"], {"அ": "a"})
         self.assertEqual(data["consonants"], {"க்": "ka"})
+        self.assertEqual(data["compound_vowels"], {"அ": "a"})
+        self.assertEqual(data["compound_consonants"], {"க்": "ka"})
 
     def test_save_pronunciations_retries_github_sha_conflict(self):
-        data = {"vowels": {"அ": "a"}, "consonants": {"க்": "ka"}}
+        data = {
+            "vowels": {"அ": "a"},
+            "consonants": {"க்": "ka"},
+            "compound_vowels": {"அ": "a"},
+            "compound_consonants": {"க்": "ka"},
+        }
         get_responses = [
             FakeResponse(200, {"sha": "old-sha"}),
             FakeResponse(200, {"sha": "new-sha"}),
