@@ -87,18 +87,45 @@ def save_pronunciations_to_github(
         "Authorization": f"Bearer {token}",
         "X-GitHub-Api-Version": "2022-11-28",
     }
+    content = base64.b64encode(pronunciations_json(data).encode("utf-8")).decode("ascii")
 
+    put_response = None
+    for _ in range(2):
+        sha = github_file_sha(url, headers, branch)
+        put_response = put_github_file(url, headers, branch, content, sha)
+
+        if put_response.status_code in (200, 201):
+            response_data = put_response.json()
+            return response_data.get("commit", {}).get("html_url", "")
+
+        if put_response.status_code != 409:
+            break
+
+    raise PronunciationStoreError(github_error_message(put_response))
+
+
+def github_file_sha(url: str, headers: dict[str, str], branch: str) -> Optional[str]:
     try:
         get_response = requests.get(url, headers=headers, params={"ref": branch}, timeout=15)
     except requests.RequestException as exc:
         raise PronunciationStoreError(f"GitHub update failed: {exc}") from exc
-    sha: Optional[str] = None
-    if get_response.status_code == 200:
-        sha = get_response.json()["sha"]
-    elif get_response.status_code != 404:
-        raise PronunciationStoreError(github_error_message(get_response))
 
-    content = base64.b64encode(pronunciations_json(data).encode("utf-8")).decode("ascii")
+    if get_response.status_code == 200:
+        return get_response.json()["sha"]
+
+    if get_response.status_code == 404:
+        return None
+
+    raise PronunciationStoreError(github_error_message(get_response))
+
+
+def put_github_file(
+    url: str,
+    headers: dict[str, str],
+    branch: str,
+    content: str,
+    sha: Optional[str],
+) -> requests.Response:
     payload = {
         "message": "Update pronunciations",
         "content": content,
@@ -108,14 +135,9 @@ def save_pronunciations_to_github(
         payload["sha"] = sha
 
     try:
-        put_response = requests.put(url, headers=headers, json=payload, timeout=15)
+        return requests.put(url, headers=headers, json=payload, timeout=15)
     except requests.RequestException as exc:
         raise PronunciationStoreError(f"GitHub update failed: {exc}") from exc
-    if put_response.status_code not in (200, 201):
-        raise PronunciationStoreError(github_error_message(put_response))
-
-    response_data = put_response.json()
-    return response_data.get("commit", {}).get("html_url", "")
 
 
 def github_error_message(response: requests.Response) -> str:
