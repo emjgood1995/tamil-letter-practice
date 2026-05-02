@@ -475,6 +475,52 @@ def select_answer(letter: str, state_key: str) -> None:
     st.session_state[state_key] = letter
 
 
+def filter_state_key(kind: str, letter: str) -> str:
+    codepoints = "_".join(f"{ord(character):04x}" for character in letter)
+    return f"filter_{kind}_{codepoints}"
+
+
+def set_filter_letters(kind: str, letters: list[str], enabled: bool) -> None:
+    for letter in letters:
+        st.session_state[filter_state_key(kind, letter)] = enabled
+
+
+def render_sidebar_letter_filter(
+    *,
+    kind: str,
+    title: str,
+    rows: tuple[tuple[str, ...], ...],
+    all_letters: list[str],
+    columns_per_row: int,
+    row_labels: Optional[tuple[str, ...]] = None,
+) -> list[str]:
+    st.markdown(f"**{title}**")
+    action_cols = st.columns(2)
+    if action_cols[0].button("All", key=f"{kind}_filter_all", width="stretch"):
+        set_filter_letters(kind, all_letters, True)
+    if action_cols[1].button("None", key=f"{kind}_filter_none", width="stretch"):
+        set_filter_letters(kind, all_letters, False)
+
+    for row_index, row in enumerate(rows):
+        if row_labels:
+            st.caption(row_labels[row_index])
+
+        columns = st.columns(columns_per_row, gap="small")
+        for letter_index, letter in enumerate(row):
+            columns[letter_index % columns_per_row].toggle(
+                letter,
+                value=True,
+                key=filter_state_key(kind, letter),
+                width="stretch",
+            )
+
+    return [
+        letter
+        for letter in all_letters
+        if st.session_state.get(filter_state_key(kind, letter), True)
+    ]
+
+
 def refill_named_queue(
     prefix: str,
     eligible_keys: list[str],
@@ -796,15 +842,20 @@ st.title("Tamil Letter Practice")
 
 with st.sidebar:
     st.header("Practice Set")
-    selected_consonants = st.multiselect(
-        "Consonants",
-        options=[consonant.mei for consonant in CONSONANTS],
-        default=[consonant.mei for consonant in CONSONANTS],
+    selected_vowels = render_sidebar_letter_filter(
+        kind="vowel",
+        title="Vowels",
+        rows=VOWEL_PAIRS,
+        all_letters=[vowel.tamil for vowel in VOWELS],
+        columns_per_row=2,
     )
-    selected_vowels = st.multiselect(
-        "Vowels",
-        options=[vowel.tamil for vowel in VOWELS],
-        default=[vowel.tamil for vowel in VOWELS],
+    selected_consonants = render_sidebar_letter_filter(
+        kind="consonant",
+        title="Consonants",
+        rows=tuple(group[1] for group in CONSONANT_GROUPS),
+        all_letters=[consonant.mei for consonant in CONSONANTS],
+        columns_per_row=3,
+        row_labels=tuple(group[0] for group in CONSONANT_GROUPS),
     )
     review_missed = st.toggle(
         "Review missed only",
